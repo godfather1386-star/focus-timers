@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/34840582/README.md)
 <div align="center">
 
 # ⏱️ Focus Timers

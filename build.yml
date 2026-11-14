@@ -1,0 +1,127 @@
+# Single-file build: the repo only needs index.html + this file at .github/workflows/build.yml.
+# The Tauri project (config, Rust shell, icon) is generated on the runner each time.
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PFX_B64: ${{ secrets.WINDOWS_PFX_BASE64 }}      # optional: base64 of your .pfx
+      PFX_PASS: ${{ secrets.WINDOWS_PFX_PASSWORD }}   # optional: its password
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Tauri project around index.html
+        run: |
+          New-Item -ItemType Directory -Force web, src-tauri/src, src-tauri/icons | Out-Null
+          Copy-Item index.html web/index.html -Force
+
+          @'
+          [package]
+          name = "focus-timers"
+          version = "1.0.0"
+          edition = "2021"
+
+          [build-dependencies]
+          tauri-build = { version = "2", features = [] }
+
+          [dependencies]
+          tauri = { version = "2", features = [] }
+
+          [profile.release]
+          opt-level = "s"
+          lto = true
+          codegen-units = 1
+          panic = "abort"
+          strip = true
+          '@ | Set-Content -Encoding ascii src-tauri/Cargo.toml
+
+          @'
+          fn main() {
+              tauri_build::build()
+          }
+          '@ | Set-Content -Encoding ascii src-tauri/build.rs
+
+          @'
+          #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+          fn main() {
+              tauri::Builder::default()
+                  .run(tauri::generate_context!())
+                  .expect("error while running Focus Timers");
+          }
+          '@ | Set-Content -Encoding ascii src-tauri/src/main.rs
+
+          @'
+          {
+            "$schema": "https://schema.tauri.app/config/2",
+            "productName": "Focus Timers",
+            "version": "1.0.0",
+            "identifier": "com.focustimers.app",
+            "build": { "frontendDist": "../web" },
+            "app": {
+              "withGlobalTauri": false,
+              "windows": [
+                {
+                  "title": "Focus Timers",
+                  "width": 1180,
+                  "height": 720,
+                  "minWidth": 320,
+                  "minHeight": 480,
+                  "center": true,
+                  "backgroundColor": "#070a14"
+                }
+              ]
+            },
+            "bundle": { "active": false, "icon": ["icons/icon.ico", "icons/icon.png"] }
+          }
+          '@ | Set-Content -Encoding ascii src-tauri/tauri.conf.json
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Draw app icon
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $bmp = New-Object System.Drawing.Bitmap 1024, 1024
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+          $g.Clear([System.Drawing.Color]::FromArgb(11, 16, 32))
+          $track = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(40, 255, 255, 255), 96)
+          $g.DrawEllipse($track, 212, 212, 600, 600)
+          $arc = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(75, 224, 200), 96)
+          $arc.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+          $arc.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+          $g.DrawArc($arc, 212, 212, 600, 600, -90, 270)
+          $bmp.Save("$PWD\icon-src.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          npx --yes @tauri-apps/cli@2 icon icon-src.png
+
+      - name: Build
+        run: npx --yes @tauri-apps/cli@2 build --no-bundle
+
+      - name: Collect exe
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item src-tauri/target/release/focus-timers.exe dist/FocusTimers.exe
+
+      - name: Sign (runs only if the certificate secrets exist)
+        if: ${{ env.PFX_B64 != '' }}
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+                Sort-Object FullName -Descending | Select-Object -First 1
+          & $st.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f cert.pfx /p $env:PFX_PASS dist/FocusTimers.exe
+          & $st.FullName verify /pa dist/FocusTimers.exe
+          Remove-Item cert.pfx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FocusTimers-exe
+          path: dist/FocusTimers.exe

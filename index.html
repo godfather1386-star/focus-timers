@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Focus Timers</title>
+<style>
+  /* ============ BASE ============ */
+  :root {
+    --text: #e9edfa;
+    --muted: #8b97b5;
+    --line: rgba(255, 255, 255, 0.09);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body { min-height: 100%; }
+
+  body {
+    margin: 0;
+    padding: 44px 20px 64px;
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+                 Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(1100px 780px at 12% -12%, #1c2552 0%, transparent 62%),
+      radial-gradient(900px 700px at 108% 6%, #123a48 0%, transparent 58%),
+      radial-gradient(820px 820px at 50% 122%, #2a1b3f 0%, transparent 62%),
+      #070a14;
+    background-attachment: fixed;
+  }
+
+  /* ============ LAYOUT ============ */
+  .app {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+
+  .app-head {
+    text-align: center;
+    margin-bottom: 34px;
+  }
+
+  .app-head h1 {
+    margin: 0 0 10px;
+    font-size: clamp(1.65rem, 4.2vw, 2.15rem);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    background: linear-gradient(180deg, #ffffff 0%, #a9b6dd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .tagline {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+    gap: 20px;
+  }
+
+  .app-foot {
+    margin-top: 34px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 26px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .app-foot span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.74rem;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    padding: 1px 6px;
+    line-height: 1.5;
+  }
+
+  /* ============ CARD ============ */
+  .card {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 20px 18px;
+    border-radius: 26px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.07),
+                                        rgba(255, 255, 255, 0.022));
+    box-shadow:
+      0 18px 42px -22px rgba(0, 0, 0, 0.95),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  }
+
+  /* accent glow behind the card */
+  .card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(120% 92% at 50% -18%, var(--glow), transparent 62%);
+    opacity: 0.34;
+    transition: opacity 0.35s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .card.running {
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow:
+      0 26px 60px -30px var(--glow),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .card.running::before { opacity: 0.8; }
+  .card.finished::before { opacity: 1; }
+  .card.finished { border-color: rgba(255, 255, 255, 0.24); }
+
+  /* ---- head ---- */
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .card-title {
+    font-size: 0.96rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  .card-sub {
+    margin-top: 3px;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+  }
+
+  .dot {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background 0.3s ease;
+  }
+
+  .card.running .dot {
+    background: var(--accent);
+    animation: blink 1.5s ease-in-out infinite;
+  }
+
+  .card.finished .dot { background: #ffffff; animation: none; }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.22; }
+  }
+
+  /* ---- dial ---- */
+  .dial {
+    position: relative;
+    width: 100%;
+    max-width: 208px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+  }
+
+  .ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+    overflow: visible;
+  }
+
+  .ring circle {
+    fill: none;
+    stroke-width: 8;
+  }
+
+  .ring-track { stroke: rgba(255, 255, 255, 0.07); }
+
+  /* no CSS transition: the offset is driven straight from the clock every frame */
+  .ring-progress {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 6px var(--glow));
+  }
+
+  .dial-inner {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    text-align: center;
+  }
+
+  .time {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(1.85rem, 6.4vw, 2.3rem);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+    text-shadow: 0 0 26px var(--glow);
+  }
+
+  .sub {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+  }
+
+  .card.finished .time { animation: pop 0.55s ease; }
+
+  @keyframes pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.09); }
+    100% { transform: scale(1); }
+  }
+
+  /* ---- buttons ---- */
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    margin-top: auto;
+  }
+
+  .btn {
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.015em;
+    padding: 11px 18px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.15s ease, filter 0.2s ease,
+                background 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .btn-start {
+    color: #07101e;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 10px 24px -14px var(--glow);
+  }
+
+  .btn-start:hover:not(:disabled) { filter: brightness(1.08); }
+
+  .btn-start:disabled {
+    opacity: 0.4;
+    cursor: default;
+    box-shadow: none;
+    filter: none;
+  }
+
+  .btn-reset {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.13);
+  }
+
+  .btn-reset:hover { background: rgba(255, 255, 255, 0.13); }
+
+  /* ============ A11Y ============ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+    .card:hover { transform: none; }
+  }
+
+  @media (max-width: 380px) {
+    body { padding: 30px 14px 48px; }
+    .card { padding: 16px 16px 14px; border-radius: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<main class="app">
+  <header class="app-head">
+    <h1>Focus Timers</h1>
+    <p class="tagline">Four countdowns. Start one, reset it whenever you like.</p>
+  </header>
+
+  <section id="grid" class="grid" aria-label="Countdown timers"></section>
+
+  <footer class="app-foot">
+    <span><kbd>1</kbd>–<kbd>4</kbd> start / restart</span>
+    <span><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>4</kbd> reset</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+     CONFIG
+     ========================================================= */
+  var CONFIG = [
+    { minutes: 45, title: '45 Minutes', tag: 'Deep focus',
+      accent: '#8b9dff', accent2: '#5b6cf9', glow: 'rgba(124, 140, 255, 0.45)' },
+    { minutes: 15, title: '15 Minutes', tag: 'Sprint',
+      accent: '#4be0c8', accent2: '#12a4d9', glow: 'rgba(60, 215, 200, 0.42)' },
+    { minutes: 10, title: '10 Minutes', tag: 'Short break',
+      accent: '#ffc861', accent2: '#ff8a3d', glow: 'rgba(255, 170, 70, 0.42)' },
+    { minutes: 5,  title: '5 Minutes',  tag: 'Micro break',
+      accent: '#ff8fa8', accent2: '#f43f6b', glow: 'rgba(255, 110, 140, 0.42)' }
+  ];
+
+  var RING_R = 70;
+  var RING_C = 2 * Math.PI * RING_R;   /* ≈ 439.82 */
+
+  var grid = document.getElementById('grid');
+  var timers = [];
+
+  /* =========================================================
+     BUILD CARDS
+     ========================================================= */
+  CONFIG.forEach(function (cfg) {
+    var card = document.createElement('article');
+    card.className = 'card';
+    card.style.setProperty('--accent', cfg.accent);
+    card.style.setProperty('--accent-2', cfg.accent2);
+    card.style.setProperty('--glow', cfg.glow);
+
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div>' +
+          '<div class="card-title">' + cfg.title + '</div>' +
+          '<div class="card-sub">' + cfg.tag + '</div>' +
+        '</div>' +
+        '<span class="dot" aria-hidden="true"></span>' +
+      '</div>' +
+      '<div class="dial">' +
+        '<svg class="ring" viewBox="0 0 160 160" aria-hidden="true">' +
+          '<circle class="ring-track" cx="80" cy="80" r="' + RING_R + '"></circle>' +
+          '<circle class="ring-progress" cx="80" cy="80" r="' + RING_R + '"' +
+            ' stroke-dasharray="' + RING_C + '" stroke-dashoffset="0"></circle>' +
+        '</svg>' +
+        '<div class="dial-inner">' +
+          '<div class="time" role="timer">00:00</div>' +
+          '<div class="sub">ready</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="actions">' +
+        '<button type="button" class="btn btn-start">Start</button>' +
+        '<button type="button" class="btn btn-reset">Reset</button>' +
+      '</div>';
+
+    grid.appendChild(card);
+
+    var durationMs = cfg.minutes * 60 * 1000;
+
+    var t = {
+      card: card,
+      duration: durationMs,
+      remaining: durationMs,
+      endAt: 0,
+      running: false,
+      finished: false,
+      lastText: '',
+      lastOff: -1,
+      timeEl: card.querySelector('.time'),
+      subEl: card.querySelector('.sub'),
+      ringEl: card.querySelector('.ring-progress'),
+      startBtn: card.querySelector('.btn-start'),
+      resetBtn: card.querySelector('.btn-reset')
+    };
+
+    t.startBtn.addEventListener('click', function () { startTimer(t); });
+    t.resetBtn.addEventListener('click', function () { resetTimer(t); });
+
+    timers.push(t);
+    render(t);
+  });
+
+  /* =========================================================
+     RENDERING
+     ========================================================= */
+  function formatTime(ms) {
+    var total = Math.ceil(Math.max(0, ms) / 1000);
+    var m = Math.floor(total / 60);
+    var s = total % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  /* Returns true when the displayed second changed.
+     The arc is computed from real remaining time on every call, but the DOM is
+     only written when the value moves by >= 1/8 SVG unit (~0.16 px) — finer than
+     a pixel, so it looks continuous, yet a 45-min ring costs ~1 repaint/s instead of 60. */
+  function render(t) {
+    var changed = false;
+    var text = formatTime(t.remaining);
+    if (text !== t.lastText) {
+      t.timeEl.textContent = text;
+      t.lastText = text;
+      changed = true;
+    }
+
+    var frac = t.duration > 0 ? t.remaining / t.duration : 0;
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    var off = Math.round(RING_C * (1 - frac) * 8) / 8;
+    if (off !== t.lastOff) {
+      t.ringEl.style.strokeDashoffset = off;
+      t.lastOff = off;
+    }
+    return changed;
+  }
+
+  /* =========================================================
+     STATE TRANSITIONS
+     ========================================================= */
+  function startTimer(t) {
+    if (t.running) return;                       /* already going — no pausing */
+    if (t.finished || t.remaining <= 0) t.remaining = t.duration;
+
+    t.finished = false;
+    t.running = true;
+    t.endAt = Date.now() + t.remaining;
+
+    t.card.classList.remove('finished');
+    t.card.classList.add('running');
+    t.startBtn.disabled = true;
+    t.startBtn.textContent = 'Running';
+    t.subEl.textContent = 'running';
+
+    render(t);
+    updateTitle();
+    getAudio();                                  /* unlock audio on user gesture */
+    schedule();                                  /* (re)start the clock loop */
+  }
+
+  function resetTimer(t) {
+    t.running = false;
+    t.finished = false;
+    t.endAt = 0;
+    t.remaining = t.duration;
+
+    t.card.classList.remove('running', 'finished');
+    t.startBtn.disabled = false;
+    t.startBtn.textContent = 'Start';
+    t.subEl.textContent = 'ready';
+    t.lastText = '';
+    t.lastOff = -1;
+
+    render(t);
+    updateTitle();
+    schedule();                                  /* halts the loop if nothing is left running */
+  }
+
+  function finishTimer(t) {
+    t.running = false;
+    t.finished = true;
+    t.endAt = 0;
+    t.remaining = 0;
+
+    t.card.classList.remove('running');
+    t.card.classList.add('finished');
+    t.startBtn.disabled = false;
+    t.startBtn.textContent = 'Restart';
+    t.subEl.textContent = "time's up";
+
+    render(t);
+    updateTitle();
+    chime();
+  }
+
+  /* =========================================================
+     CLOCK LOOP  (timestamp based — never drifts, survives sleep)
+     Exactly one wake-up source exists while something runs, none when idle:
+       visible → requestAnimationFrame (display-rate, self-halts)
+       hidden  → one setTimeout aimed at the nearest end time, so the chime
+                 still fires on a minimised window (rAF is paused there)
+     ========================================================= */
+  var rafId = 0;
+  var wakeId = 0;
+
+  function tick() {
+    var now = Date.now();
+    var live = false;
+    var changed = false;
+
+    for (var i = 0; i < timers.length; i++) {
+      var t = timers[i];
+      if (!t.running) continue;
+
+      var rem = t.endAt - now;
+      if (rem <= 0) {
+        finishTimer(t);
+      } else {
+        t.remaining = rem;
+        if (render(t)) changed = true;
+        live = true;
+      }
+    }
+
+    if (changed) updateTitle();
+    return live;
+  }
+
+  function frame() {
+    rafId = 0;
+    if (tick()) rafId = requestAnimationFrame(frame);   /* nothing live → loop ends here */
+  }
+
+  function wake() {
+    wakeId = 0;
+    tick();
+    schedule();
+  }
+
+  function schedule() {
+    if (rafId)  cancelAnimationFrame(rafId);
+    if (wakeId) clearTimeout(wakeId);
+    rafId = 0;
+    wakeId = 0;
+
+    var next = Infinity;
+    for (var i = 0; i < timers.length; i++) {
+      if (timers[i].running && timers[i].endAt < next) next = timers[i].endAt;
+    }
+    if (next === Infinity) return;                       /* idle: zero rAF, zero timeouts */
+
+    if (document.hidden) wakeId = setTimeout(wake, Math.max(0, next - Date.now()));
+    else rafId = requestAnimationFrame(frame);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    tick();                                              /* catch up instantly on return */
+    schedule();
+  });
+
+  /* =========================================================
+     TAB TITLE
+     ========================================================= */
+  var titleCache = '';
+  function updateTitle() {
+    var best = null;
+    for (var i = 0; i < timers.length; i++) {
+      var t = timers[i];
+      if (!t.running) continue;
+      if (!best || t.remaining < best.remaining) best = t;
+    }
+    var next = best ? formatTime(best.remaining) + ' • Focus Timers' : 'Focus Timers';
+    if (next !== titleCache) {
+      document.title = next;
+      titleCache = next;
+    }
+  }
+
+  /* =========================================================
+     SOUND
+     The AudioContext is created on the first user gesture (which unlocks it),
+     then parked in "suspended" so no audio device / render thread sits open
+     while idle. It is woken only to play the chime, then parked again.
+     ========================================================= */
+  var audioCtx = null;
+  var hushId = 0;
+
+  function getAudio() {
+    try {
+      if (!audioCtx) {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        audioCtx = new AC();
+        audioCtx.suspend();
+      }
+      return audioCtx;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function chime() {
+    var ctx = getAudio();
+    if (!ctx) return;
+
+    function play() {
+      try {
+        var t0 = ctx.currentTime + 0.02;
+        var notes = [880, 1108.73, 1318.51];
+
+        for (var i = 0; i < notes.length; i++) {
+          var start = t0 + i * 0.16;
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(notes[i], start);
+
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.45);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(start);
+          osc.stop(start + 0.5);
+        }
+      } catch (err) { /* audio is a nice-to-have, never fatal */ }
+    }
+
+    try {
+      ctx.resume().then(play, function () {});
+      clearTimeout(hushId);
+      hushId = setTimeout(function () {
+        try { ctx.suspend(); } catch (err) {}
+      }, 1600);
+    } catch (err) { /* never fatal */ }
+  }
+
+  /* Unlock the audio context on the first interaction */
+  document.addEventListener('pointerdown', function () { getAudio(); }, { once: true });
+
+  /* =========================================================
+     KEYBOARD SHORTCUTS
+     ========================================================= */
+  document.addEventListener('keydown', function (e) {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+
+    var idx = -1;
+    var code = e.code || '';
+    var m = /^(?:Digit|Numpad)([1-4])$/.exec(code);
+
+    if (m) {
+      idx = parseInt(m[1], 10) - 1;
+    } else {
+      var n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 4) idx = n - 1;
+    }
+
+    if (idx < 0 || !timers[idx]) return;
+
+    e.preventDefault();
+    if (e.shiftKey) resetTimer(timers[idx]);
+    else startTimer(timers[idx]);
+  });
+
+})();
+</script>
+</body>
+</html>
